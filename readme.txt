@@ -4,7 +4,7 @@ The project is about my final design.
 
 首先实现最基础的INS姿态解算
 
-之后加入EKF
+之后加入ESKF
 
 加入算法改进
 
