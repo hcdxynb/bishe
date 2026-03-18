@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pkl
+.env
+venv/
+env/
+.venv/
+
+# Jupyter
+# .ipynb_checkpoints/
+
+# 临时/中间构建文件
+*.txt
+*.png
+*.bin
+*.zip
+# *.tmp
+# *.temp
+# *.bak
+# *.swp
+# *.swo
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# 操作系统生成
+# .DS_Store
+# Thumbs.db
+# desktop.ini
+
+# 编译输出（C/C++ / Java / 其他）
+build/
+dist/
+bin/
+obj/
+out/
+target/
+
+# 数据/缓存
+*.cache
+*.db
+*.sqlite
+*.h5
+*.npy
+*.npz
+
+# 锁文件
+*.lock
