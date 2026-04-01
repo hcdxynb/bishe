@@ -1,24 +1,24 @@
-# earth
+# earth 地球自转以及重力加速度等参数
 earth_rotation_speed: 7.2921151467e-05  # rad/s
 earth_gravity: 9.794444352667332154
 
-# reference point
+# reference point   需要根据实际数据集的采集位置进行修改，gps数据会以这个点为原点进行坐标转换
 ref_longitude: 120.401989
 ref_latitude: 31.508183
 ref_altitude: 0.0
 
-# kalman prediction process std
+# kalman prediction process std 初始值，后续会根据实际情况进行调整 用于P矩阵的构建
 position_error_prior_std: 1.0e-5
 velocity_error_prior_std: 1.0e-5
 rotation_error_prior_std: 1.0e-5
 gyro_bias_error_prior_std: 1.0e-5
 accelerometer_bias_error_prior_std: 1.0e-5
 
-# imu sensor noise
+# imu sensor noise std，后续会根据实际情况进行调整 用于Q矩阵的构建
 gyro_noise_std: 1.0e-2
 accelerometer_noise_std: 1.0e-1
 
-# kalman measurement process std (uint: m)
+# kalman measurement process std (uint: m) GPS测量噪声的初始值，后续会根据实际情况进行调整 用于R矩阵的构建
 gps_position_x_std: 5
 gps_position_y_std: 5
 gps_position_z_std: 8
@@ -26,5 +26,5 @@ gps_position_z_std: 8
 # only use prediction, equivalent to only using IMU to integration
 only_prediction: false
 
-# use earth model
+# use earth model 是否使用地球模型进行坐标转换和重力补偿等计算，通常在室外环境下使用
 use_earth_model: true

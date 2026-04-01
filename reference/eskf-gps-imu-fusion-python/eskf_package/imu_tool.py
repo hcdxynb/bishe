@@ -5,7 +5,7 @@ from .data_model import IMUData
 
 
 class IMUTool:
-    DEG2RAD = np.pi / 180.0
+    DEG2RAD = np.pi / 180.0 # 角度转弧度的转换系数
 
     def read_imu_data(self, path, skip_rows=1):
         accel_path = os.path.join(path, 'accel-0.csv')

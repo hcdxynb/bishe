@@ -137,14 +137,14 @@ class ErrorStateKalmanFilter:
         a0 = R0 @ self.compute_unbias_accel(imu0.linear_accel) - self.g
         a1 = R1 @ self.compute_unbias_accel(imu1.linear_accel) - self.g
 
-        self.pose[0:3, 3] += 0.5 * dt * (curr_vel + last_vel) + 0.25 * dt * dt * (a0 + a1)
+        self.pose[0:3, 3] += 0.5 * dt * (curr_vel + last_vel) + 0.25 * dt * dt * (a0 + a1) # 使用当前 IMU 数据进行位置更新
 
     def update_odometry_estimation(self, w_in):
-        imu0 = self.imu_data_buff[0]
-        imu1 = self.imu_data_buff[1]
+        imu0 = self.imu_data_buff[0] # 获取当前缓冲区中的第一条 IMU 数据作为基准
+        imu1 = self.imu_data_buff[1] # 获取当前缓冲区中的第二条 IMU 数据作为当前时刻的 IMU 数据
         dt = imu1.time - imu0.time
 
-        delta_rotation = self.compute_delta_rotation(imu0, imu1)
+        delta_rotation = self.compute_delta_rotation(imu0, imu1) # 计算两条 IMU 数据之间的旋转增量
         phi_in = w_in * dt
         norm_phi = np.linalg.norm(phi_in)
         if norm_phi < 1e-12:
@@ -152,9 +152,9 @@ class ErrorStateKalmanFilter:
         else:
             R_nm_nm_1 = R.from_rotvec(phi_in).as_matrix().T
 
-        curr_R, last_R = self.compute_orientation(delta_rotation, R_nm_nm_1)
-        last_vel, curr_vel = self.compute_velocity(last_R, curr_R, imu0, imu1)
-        self.compute_position(last_R, curr_R, last_vel, curr_vel, imu0, imu1)
+        curr_R, last_R = self.compute_orientation(delta_rotation, R_nm_nm_1) # 计算当前时刻的旋转矩阵，并返回当前和上一个时刻的旋转矩阵
+        last_vel, curr_vel = self.compute_velocity(last_R, curr_R, imu0, imu1) # 计算当前时刻的速度，并返回当前和上一个时刻的速度
+        self.compute_position(last_R, curr_R, last_vel, curr_vel, imu0, imu1) # 使用 当前 IMU 数据进行位置更新
 
     def update_error_state(self, dt, accel, w_in_n):
         F23 = skew_symmetric(accel)
@@ -180,19 +180,19 @@ class ErrorStateKalmanFilter:
         self.P = Fk @ self.P @ Fk.T + Bk @ self.Q @ Bk.T
 
     def estimate(self, imu_data):
-        self.imu_data_buff.append(imu_data)
+        self.imu_data_buff.append(imu_data) # 将当前 IMU 数据添加到缓冲区
 
         w_in = np.zeros(3)
         if self.cfg.use_earth_model:
             w_in = self.compute_navigation_frame_angular_velocity()
 
-        self.update_odometry_estimation(w_in)
+        self.update_odometry_estimation(w_in) # 使用当前 IMU 数据进行 ESKF 预测
 
         dt = imu_data.time - self.imu_data_buff[0].time
         accel_world = self.pose[0:3, 0:3] @ imu_data.linear_accel
         self.update_error_state(dt, accel_world, w_in)
 
-        self.imu_data_buff.pop(0)
+        self.imu_data_buff.pop(0) 
 
     def correct(self, gps_data):
         self.curr_gps_data = gps_data

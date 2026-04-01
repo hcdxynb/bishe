@@ -7,24 +7,24 @@ class GPSTool:
     """GPS 坐标和文件读取模块"""
 
     def __init__(self, lon, lat, alt):
-        self.ref_lon = lon
-        self.ref_lat = lat
-        self.ref_alt = alt
+        self.ref_lon = lon # 参考点经度
+        self.ref_lat = lat # 参考点纬度
+        self.ref_alt = alt # 参考点高度
 
-        self.a = 6378137.0
-        self.f = 1.0 / 298.257223563
-        self.e2 = self.f * (2 - self.f)
+        self.a = 6378137.0 # WGS84 长半轴
+        self.f = 1.0 / 298.257223563 # WGS84 扁率
+        self.e2 = self.f * (2 - self.f) # WGS84 第一偏心率平方
 
-        self.ref_ecef = self.lla_to_ecef(np.deg2rad(self.ref_lat), np.deg2rad(self.ref_lon), self.ref_alt)
+        self.ref_ecef = self.lla_to_ecef(np.deg2rad(self.ref_lat), np.deg2rad(self.ref_lon), self.ref_alt) # 参考点的 ECEF 坐标
 
-    def lla_to_ecef(self, lat_rad, lon_rad, alt):
+    def lla_to_ecef(self, lat_rad, lon_rad, alt): # 将经纬度坐标转换为 ECEF 坐标
         N = self.a / np.sqrt(1 - self.e2 * np.sin(lat_rad) ** 2)
         x = (N + alt) * np.cos(lat_rad) * np.cos(lon_rad)
         y = (N + alt) * np.cos(lat_rad) * np.sin(lon_rad)
         z = (N * (1 - self.e2) + alt) * np.sin(lat_rad)
         return np.array([x, y, z])
 
-    def ecef_to_enu(self, ecef):
+    def ecef_to_enu(self, ecef): # 将 ECEF 坐标转换为 ENU 坐标
         dx = ecef - self.ref_ecef
         lat = np.deg2rad(self.ref_lat)
         lon = np.deg2rad(self.ref_lon)
@@ -36,7 +36,7 @@ class GPSTool:
         ])
         return t.dot(dx)
 
-    def lla_to_local_ned_vec(self, lla):
+    def lla_to_local_ned_vec(self, lla): # 将经纬度坐标转换为局部 NED 坐标
         lat_rad = np.deg2rad(lla[0])
         lon_rad = np.deg2rad(lla[1])
         alt = lla[2]
@@ -45,7 +45,7 @@ class GPSTool:
         enu = self.ecef_to_enu(ecef)
         return np.array([enu[1], enu[0], -enu[2]])
 
-    def read_gps_data(self, path, skip_rows=1):
+    def read_gps_data(self, path, skip_rows=1): # 读取 GPS 数据文件，返回 GPSData 对象列表
         gps_path = os.path.join(path, 'gps-0.csv')
         ref_gps_path = os.path.join(path, 'ref_gps.csv')
         gps_time_path = os.path.join(path, 'gps_time.csv')
