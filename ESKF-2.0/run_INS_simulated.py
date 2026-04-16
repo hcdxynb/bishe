@@ -103,6 +103,7 @@ P_est = np.zeros((steps, 15, 15))
 x_pred = np.zeros((steps, 16))
 P_pred = np.zeros((steps, 15, 15))
 
+v_prior = np.zeros((steps, 3)) # 记录每次 GNSS 更新前的测量残差（先验残差）
 v_post = np.zeros((steps, 3)) # 记录每次 GNSS 更新后的测量残差（后验残差）
 
 delta_x = np.zeros((steps, 15))
@@ -125,29 +126,32 @@ P_pred[0][ERR_GYRO_BIAS_IDX ** 2] = params["P_pred0_gyrobias"]*np.eye(3)# TODO: 
 N: int = steps # TODO: 可先从较小值开始（如 500），结果稳定后再逐步增大
 doGNSS: bool = True  # TODO: 若想检查纯预测在合理时长内是否稳定，可设为 False
 
-
 # 主循环 滤波过程
 GNSSk: int = 0  # 记录当前 GNSS 测量索引
 for k in tqdm(range(N)):
     if doGNSS and timeIMU[k] >= timeGNSS[GNSSk]:
-        v_prior = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）
-        
+        v_prior[GNSSk] = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）        
         if GNSSk == 0:
-            x_est[k], P_est[k], R_GNSS =eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3))
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3))
         else:
-            x_est[k], P_est[k], R_GNSS =eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1])
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1])
             v_post[GNSSk] = z_GNSS[GNSSk] - x_est[k, POS_IDX] # 测量残差（后验残差）
 
         GNSSk += 1
+        do_auto = True
     else:
         # 无观测更新时，令估计值等于预测值
         x_est[k] = x_pred[k]
         P_est[k] = P_pred[k]
+        do_auto = False
 
     delta_x[k] = eskf.delta_x(x_est[k], x_true[k])
 
     if k < N - 1:
-        x_pred[k + 1], P_pred[k + 1] = eskf.predict(x_est[k],P_est[k],z_acceleration[k],z_gyroscope[k],dt)# TODO: 提示：测量来自当前与过去时刻，而不是未来
+        if GNSSk == 0:
+            x_pred[k + 1], P_pred[k + 1] = eskf.predict(x_est[k],P_est[k],z_acceleration[k],z_gyroscope[k],dt, np.zeros((15, 3)), GNSSk, np.zeros(3),np.zeros(3) ,do_auto)# TODO: 提示：测量来自当前与过去时刻，而不是未来
+        else:
+            x_pred[k + 1], P_pred[k + 1] = eskf.predict(x_est[k],P_est[k],z_acceleration[k],z_gyroscope[k],dt, W, GNSSk, v_prior,v_post ,do_auto)# TODO: 提示：测量来自当前与过去时刻，而不是未来
 
 
 
@@ -170,52 +174,47 @@ t = np.linspace(0, dt * (N - 1), N)
 eul = np.apply_along_axis(quaternion_to_euler, 1, x_est[:N, ATT_IDX])
 eul_true = np.apply_along_axis(quaternion_to_euler, 1, x_true[:N, ATT_IDX])
 
-# 状态估计曲线
-fig2, axs2 = plt.subplots(5, 1, num=2, clear=True)
-fig2.suptitle("States estimates")
-
-axs2[0].plot(t, x_est[:N, POS_IDX])
-axs2[0].set(ylabel="NED position [m]",xlabel="Time [s]")
-axs2[0].legend(["North", "East", "Down"])
-
-
-axs2[1].plot(t, x_est[:N, VEL_IDX])
-axs2[1].set(ylabel="Velocities [m/s]",xlabel="Time [s]")
-axs2[1].legend(["North", "East", "Down"])
-
-
-axs2[2].plot(t, eul[:N] * 180 / np.pi)
-axs2[2].set(ylabel="Euler angles [deg]",xlabel="Time [s]")
-axs2[2].legend([r"$\phi$", r"$\theta$", r"$\psi$"])
-
-
-axs2[3].plot(t, x_est[:N, ACC_BIAS_IDX])
-axs2[3].set(ylabel="Accl bias [m/s^2]",xlabel="Time [s]")
-axs2[3].legend(["$x$", "$y$", "$z$"])
-
-
-axs2[4].plot(t, x_est[:N, GYRO_BIAS_IDX] * 180 / np.pi * 3600)
-axs2[4].set(ylabel="Gyro bias [deg/h]",xlabel="Time [s]")
-axs2[4].legend(["$x$", "$y$", "$z$"])
-
 # 误差范数曲线(RMSE)
-fig4, axs4 = plt.subplots(2, 1, num=4, clear=True)
+fig4, axs4 = plt.subplots(5, 1, num=2, clear=True)
+fig4.suptitle("RMSE of all state groups")
 
-axs4[0].plot(t, np.linalg.norm(delta_x[:N, POS_IDX], axis=1))
+pos_err_norm = np.linalg.norm(delta_x[:N, POS_IDX], axis=1)
+vel_err_norm = np.linalg.norm(delta_x[:N, VEL_IDX], axis=1)
+att_err_norm_deg = np.linalg.norm(delta_x[:N, ERR_ATT_IDX] * 180 / np.pi, axis=1)
+acc_bias_err_norm = np.linalg.norm(delta_x[:N, ERR_ACC_BIAS_IDX], axis=1)
+gyro_bias_err_norm_deg_h = np.linalg.norm(
+    delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600, axis=1
+)
+
+axs4[0].plot(t, pos_err_norm)
 axs4[0].plot(
     np.arange(0, N, 100) * dt,
     np.linalg.norm(x_true[99:N:100, :3] - z_GNSS[:GNSSk], axis=1),
 )
-axs4[0].set(ylabel="Position error [m]")
+axs4[0].set(ylabel="Position error [m]", xlabel="Time [s]")
 axs4[0].legend(
     [
-        f"Estimation(ESKF) error(RMSE) ({np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1)))})",
-        f"Measurement(GNSS) error(RMSE) ({np.sqrt(np.mean(np.sum((x_true[99:N:100, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1)))})",
+        f"ESKF RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1))):.4f}",
+        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1))):.4f}",
     ]
 )
 
-axs4[1].plot(t, np.linalg.norm(delta_x[:N, VEL_IDX], axis=1))
-axs4[1].set(ylabel="Speed error [m/s]")
-axs4[1].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, VEL_IDX]**2, axis=0)))}"])
+axs4[1].plot(t, vel_err_norm)
+axs4[1].set(ylabel="Velocity error [m/s]", xlabel="Time [s]")
+axs4[1].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, VEL_IDX]**2, axis=1))):.4f}"])
+
+axs4[2].plot(t, att_err_norm_deg)
+axs4[2].set(ylabel="Attitude error [deg]", xlabel="Time [s]")
+axs4[2].legend([f"RMSE: {np.sqrt(np.mean(np.sum((delta_x[:N, ERR_ATT_IDX] * 180 / np.pi)**2, axis=1))):.4f}"])
+
+axs4[3].plot(t, acc_bias_err_norm)
+axs4[3].set(ylabel="Acc bias error [m/s^2]", xlabel="Time [s]")
+axs4[3].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, ERR_ACC_BIAS_IDX]**2, axis=1))):.4f}"])
+
+axs4[4].plot(t, gyro_bias_err_norm_deg_h)
+axs4[4].set(ylabel="Gyro bias error [deg/h]", xlabel="Time [s]")
+axs4[4].legend([
+    f"RMSE: {np.sqrt(np.mean(np.sum((delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600)**2, axis=1))):.4f}"
+])
 
 plt.show()

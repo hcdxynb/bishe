@@ -352,25 +352,76 @@ axs3[4].legend(
     ]
 )
 
-# 误差范数曲线
-fig4, axs4 = plt.subplots(2, 1, num=4, clear=True)
+# 状态估计曲线
+fig2, axs2 = plt.subplots(5, 1, num=2, clear=True)
+fig2.suptitle("States estimates")
 
-axs4[0].plot(t, np.linalg.norm(delta_x[:N, POS_IDX], axis=1))
+axs2[0].plot(t, x_est[:N, POS_IDX])
+axs2[0].set(ylabel="NED position [m]",xlabel="Time [s]")
+axs2[0].legend(["North", "East", "Down"])
+
+
+axs2[1].plot(t, x_est[:N, VEL_IDX])
+axs2[1].set(ylabel="Velocities [m/s]",xlabel="Time [s]")
+axs2[1].legend(["North", "East", "Down"])
+
+
+axs2[2].plot(t, eul[:N] * 180 / np.pi)
+axs2[2].set(ylabel="Euler angles [deg]",xlabel="Time [s]")
+axs2[2].legend([r"$\phi$", r"$\theta$", r"$\psi$"])
+
+
+axs2[3].plot(t, x_est[:N, ACC_BIAS_IDX])
+axs2[3].set(ylabel="Accl bias [m/s^2]",xlabel="Time [s]")
+axs2[3].legend(["$x$", "$y$", "$z$"])
+
+
+axs2[4].plot(t, x_est[:N, GYRO_BIAS_IDX] * 180 / np.pi * 3600)
+axs2[4].set(ylabel="Gyro bias [deg/h]",xlabel="Time [s]")
+axs2[4].legend(["$x$", "$y$", "$z$"])
+
+# 误差范数曲线(RMSE)
+fig4, axs4 = plt.subplots(5, 1, num=4, clear=True)
+fig4.suptitle("RMSE of all state groups")
+
+pos_err_norm = np.linalg.norm(delta_x[:N, POS_IDX], axis=1)
+vel_err_norm = np.linalg.norm(delta_x[:N, VEL_IDX], axis=1)
+att_err_norm_deg = np.linalg.norm(delta_x[:N, ERR_ATT_IDX] * 180 / np.pi, axis=1)
+acc_bias_err_norm = np.linalg.norm(delta_x[:N, ERR_ACC_BIAS_IDX], axis=1)
+gyro_bias_err_norm_deg_h = np.linalg.norm(
+    delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600, axis=1
+)
+
+axs4[0].plot(t, pos_err_norm)
 axs4[0].plot(
     np.arange(0, N, 100) * dt,
     np.linalg.norm(x_true[99:N:100, :3] - z_GNSS[:GNSSk], axis=1),
 )
-axs4[0].set(ylabel="Position error [m]")
+axs4[0].set(ylabel="Position error [m]", xlabel="Time [s]")
 axs4[0].legend(
     [
-        f"Estimation error ({np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1)))})",
-        f"Measurement error ({np.sqrt(np.mean(np.sum((x_true[99:N:100, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1)))})",
+        f"ESKF RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1))):.4f}",
+        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1))):.4f}",
     ]
 )
 
-axs4[1].plot(t, np.linalg.norm(delta_x[:N, VEL_IDX], axis=1))
-axs4[1].set(ylabel="Speed error [m/s]")
-axs4[1].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, VEL_IDX]**2, axis=0)))}"])
+axs4[1].plot(t, vel_err_norm)
+axs4[1].set(ylabel="Velocity error [m/s]", xlabel="Time [s]")
+axs4[1].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, VEL_IDX]**2, axis=1))):.4f}"])
+
+axs4[2].plot(t, att_err_norm_deg)
+axs4[2].set(ylabel="Attitude error [deg]", xlabel="Time [s]")
+axs4[2].legend([f"RMSE: {np.sqrt(np.mean(np.sum((delta_x[:N, ERR_ATT_IDX] * 180 / np.pi)**2, axis=1))):.4f}"])
+
+axs4[3].plot(t, acc_bias_err_norm)
+axs4[3].set(ylabel="Acc bias error [m/s^2]", xlabel="Time [s]")
+axs4[3].legend([f"RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, ERR_ACC_BIAS_IDX]**2, axis=1))):.4f}"])
+
+axs4[4].plot(t, gyro_bias_err_norm_deg_h)
+axs4[4].set(ylabel="Gyro bias error [deg/h]", xlabel="Time [s]")
+axs4[4].legend([
+    f"RMSE: {np.sqrt(np.mean(np.sum((delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600)**2, axis=1))):.4f}"
+])
 
 
 # %% 一致性检验

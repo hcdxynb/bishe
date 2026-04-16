@@ -218,6 +218,41 @@ class ESKF:
         GQGd = V1_T@V2 # Qd = V1' * V2（定理 4.5.2）
         
         return Ad, GQGd
+    
+# Q自适应调整
+    def Q_adaptation(self, P: np.ndarray, W: np.ndarray, GQGd: np.ndarray, v_prior: np.ndarray, v_post: np.ndarray, GNSSk: int) -> np.ndarray:
+        """根据 GNSS 测量残差对误差状态噪声协方差矩阵进行自适应调整。
+
+        Args:
+            P (np.ndarray): 当前误差状态协方差矩阵，形状为 (15, 15)
+            W (np.ndarray): 当前卡尔曼增益，形状为 (15, 3)
+            GQGd (np.ndarray): 原始离散时间噪声协方差矩阵，形状为 (15, 15)
+            v_prior (np.ndarray): 当前 GNSS 测量的先验残差，形状为 (3,)
+            v_post (np.ndarray): 当前 GNSS 测量的后验残差，形状为 (3,)
+            GNSSk (int): 当前 GNSS 测量索引
+
+        Returns:
+            np.ndarray: 调整后的离散时间噪声协方差矩阵，形状为 (15, 15)
+        """
+        # 待办：自适应调整 Q 的实现
+
+        lambda_min = 0.98 #遗忘因子
+
+        L = 0
+
+        if GNSSk > 10 :
+            for i in range(10):
+                L = L + -(v_post[GNSSk - 1 -i]@v_prior[GNSSk - 1 - i].T) #误差调整参数
+            L = L/10
+        else :
+            L = -(v_post[GNSSk - 1]@v_post[GNSSk - 1].T) #误差调整参数
+        # print("L:", L)
+        b = lambda_min +(1-lambda_min)*(2**L)
+        d = (1-b)/(1-b**GNSSk)
+
+        GQGd_adjusted = (1-d)* GQGd + d*(W@np.outer(v_prior[GNSSk], v_prior[GNSSk])@W.T + P) #注意是外积
+
+        return GQGd_adjusted
 
 # 误差协方差矩阵P预测
     def predict_covariance(
@@ -227,6 +262,12 @@ class ESKF:
         acceleration: np.ndarray,
         omega: np.ndarray,
         Ts: float,
+        W: np.ndarray,
+        GNSSk: int,
+        v_prior: np.ndarray,
+        v_post: np.ndarray,
+        do_auto: bool
+
     ) -> np.ndarray:
         """利用线性化连续时间动力学，将误差协方差向前预测 Ts 时间。
 
@@ -236,11 +277,18 @@ class ESKF:
             acceleration (np.ndarray): 预测时间段内估计加速度，形状为 (3,)
             omega (np.ndarray): 预测时间段内估计角速度，形状为 (3,)
             Ts (float): 采样时间
+            W (np.ndarray): 卡尔曼增益，形状为 (15, 3)，用于自适应调整 Q
+            GNSSk (int): 当前 GNSS 测量索引（用于自适应调整）
+            v_prior (np.ndarray): 当前 GNSS 测量的先验残差，形状为 (3,)
+            v_post (np.ndarray): 当前 GNSS 测量的后验残差，形状为 (3,)
 
         Returns:
             np.ndarray: 预测后的误差状态协方差矩阵，形状为 (15, 15)
         """
         Ad, GQGd = self.discrete_error_matrices(x_nominal, acceleration, omega, Ts)
+
+        if GNSSk > 500 and do_auto:
+            GQGd = self.Q_adaptation(P, W, GQGd, v_prior, v_post, GNSSk)
 
         P_predicted=Ad@P@Ad.T+GQGd
 
@@ -254,6 +302,11 @@ class ESKF:
         z_acc: np.ndarray,
         z_gyro: np.ndarray,
         Ts: float,
+        W: np.ndarray,
+        GNSSk: int,
+        v_prior: np.ndarray,
+        v_post: np.ndarray,
+        do_auto: bool
     ) -> Tuple[np.array, np.array]:
         """利用 IMU 测量 z_* 向前预测 Ts 时间的名义状态与误差协方差。
 
@@ -263,7 +316,10 @@ class ESKF:
             z_acc (np.ndarray): 预测时间段内加速度测量，形状为 (3,)
             z_gyro (np.ndarray): 预测时间段内角速度测量，形状为 (3,)
             Ts (float): 采样时间
-
+            W (np.ndarray): 卡尔曼增益，形状为 (15, 3)，用于自适应调整 Q
+            GNSSk (int): 当前 GNSS 测量索引（用于自适应调整）
+            v_prior (np.ndarray): 当前 GNSS 测量的先验残差，形状为 (3,)
+            v_post (np.ndarray): 当前 GNSS 测量的后验残差，形状为 (3,)
         Returns:
             Tuple[ np.array, np.array ]: 预测结果二元组 (x_nominal_predicted, P_predicted)
                 x_nominal_predicted: 预测后的名义状态，形状为 (16,)
@@ -284,7 +340,7 @@ class ESKF:
 
         # 执行预测
         x_nominal_predicted = self.predict_nominal(x_nominal,acceleration,omega,Ts)
-        P_predicted = self.predict_covariance(x_nominal,P,acceleration,omega,Ts) # 这里协方差预测基于当前名义状态线性化
+        P_predicted = self.predict_covariance(x_nominal,P,acceleration,omega,Ts, W, GNSSk,v_prior,v_post, do_auto) # 这里协方差预测基于当前名义状态线性化
 
         return x_nominal_predicted, P_predicted
 
@@ -352,15 +408,23 @@ class ESKF:
         # R_GNSS = R_GNSS * (1 + 0.1 * GNSSk)
 
         lambda_min = 0.98 #遗忘因子
-        L = -(v_prior@v_prior.T) #误差调整参数
+
+        L = 0
+
+        if GNSSk > 10 :
+            for i in range(10):
+                L = L + -(v_prior[GNSSk - i]@v_prior[GNSSk - i].T) #误差调整参数
+            L = L/10
+        else :
+            L = -(v_prior[GNSSk]@v_prior[GNSSk].T) #误差调整参数
         b = lambda_min +(1-lambda_min)*(2**L)
         d = (1-b)/(1-b**GNSSk)
 
-        alpha = (v_prior@v_prior.T)/np.trace(H@P@H.T+R_GNSS) # 观测残差与理论创新协方差的比值（调整因子）
+        alpha = (v_prior[GNSSk]@v_prior[GNSSk].T)/np.trace(H@P@H.T+R_GNSS) # 观测残差与理论创新协方差的比值（调整因子）
 
         R_GNSS = (1-d)* R_GNSS + d*(np.outer(v_post, v_post) + H@P@H.T) #注意是外积
 
-        if ((v_prior@v_prior.T) > np.trace(H@P@H.T+R_GNSS)) :
+        if ((v_prior[GNSSk]@v_prior[GNSSk].T) > np.trace(H@P@H.T+R_GNSS)) :
             R_GNSS = alpha*R_GNSS
         return R_GNSS
 
@@ -381,7 +445,7 @@ class ESKF:
             P (np.ndarray): 待更新的误差状态协方差，形状为 (15, 15)
             R_GNSS (np.ndarray): 观测噪声协方差矩阵，形状为 (3, 3)
             GNSSk (int): 当前 GNSS 测量索引
-            v_prior (np.ndarray): 先验残差，形状为 (3,)
+            v_prior (np.ndarray): 先验残差，形状为 (3,N)
             v_post (np.ndarray): 后验残差，形状为 (3,)
 
         Returns:
@@ -389,6 +453,7 @@ class ESKF:
                 x_injected: 注入更新后误差状态的名义状态，形状为 (16,)
                 P_injected: 误差状态更新并注入后的协方差，形状为 (15, 15)
                 R_GNSS_auto: 适应性调整后的观测噪声协方差矩阵，形状为 (3, 3)
+                W: 卡尔曼增益，形状为 (15, 3)
         """
 
         H = np.block([np.eye(3), np.zeros((3,12))])
@@ -403,7 +468,7 @@ class ESKF:
 
         # 卡尔曼滤波误差状态更新
         W = P@H.T@np.linalg.inv(S) # 待办：卡尔曼增益
-        delta_x = W@v_prior # 待办：误差状态增量
+        delta_x = W@v_prior[GNSSk] # 待办：误差状态增量
 
         Jo = I - W @ H  # 约瑟夫形式
 
@@ -412,7 +477,7 @@ class ESKF:
         # 误差状态注入
         x_injected, P_injected = self.inject(x_nominal, delta_x, P_update)
 
-        return x_injected, P_injected, R_GNSS_auto
+        return x_injected, P_injected, R_GNSS_auto, W
 
 
 
