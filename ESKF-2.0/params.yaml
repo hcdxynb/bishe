@@ -1,23 +1,32 @@
+# 传感器参数和滤波器参数配置文件
+
 #MEASURMENT MODEL
 
-#continuous measurment noise (affecting R matrix)
+#continuous measurment noise (affecting Q matrix)
 #Based on STIM300 datasheet
+# 陀螺仪角速度噪声标准差
 cont_gyro_noise_std: 4.36e-5 #7e-5
+# 加速度计加速度噪声标准差
 cont_acc_noise_std: 1.167e-3 #4e-3
 
 #bias values
+# 陀螺仪偏置的随机游走速率
 rate_bias_driving_noise_std: 5.0e-4 #10e-2
+# 加速度计偏置的随机游走速率
 acc_bias_driving_noise_std: 8.0e-3 #2.0e-2 #3
 
 #pos and velocity measurments - used in ESKF
+#  GNSS 位置测量的标准差（东、北、上三个方向）
 p_std: #std_gnss, R_GNSS = np.diag(p_std ** 2)
    - 0.3
    - 0.3
    - 0.5
+
+# 用来预测偏置以及状态转移
 p_acc: 1.0e-16 #1.0e-17
 p_gyro: 1.0e-16 #1.0e-17
 
-
+# 初始P矩阵的对角线元素，表示状态预测的初始不确定性
 #Initial covariance for process models of state
 # all of these are timed with identity
 P_pred0_pos: 0.01 # 0.01*

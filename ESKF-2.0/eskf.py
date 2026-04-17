@@ -1,4 +1,4 @@
-# %% 导入相关库
+# 导入相关库
 from typing import Tuple, Sequence, Any
 from dataclasses import dataclass, field
 from cat_slice import CatSlice
@@ -15,7 +15,8 @@ from quaternion import (
 # 从 utils.py 导入 cross_product_matrix 函数 用于叉乘矩阵的构造
 from utils import cross_product_matrix
 
-# %% 索引 返回cat_slice对象，便于后续切片操作
+# 索引 返回cat_slice对象，便于后续切片操作
+
 # 名义状态
 POS_IDX = CatSlice(start=0, stop=3) # 返回[0,1,2]，对应位置索引
 VEL_IDX = CatSlice(start=3, stop=6)
@@ -28,34 +29,26 @@ ERR_ATT_IDX = CatSlice(start=6, stop=9)
 ERR_ACC_BIAS_IDX = CatSlice(start=9, stop=12)
 ERR_GYRO_BIAS_IDX = CatSlice(start=12, stop=15)
 
-
-
-# %% ESKF 类定义
+# ESKF 类定义
 @dataclass
 class ESKF:
     # 用于构造Q_err的参数
-    sigma_acc: float # 加速度计测量噪声标准差（待传）
-    sigma_gyro: float # 陀螺仪测量噪声标准差 （待传）
-    sigma_acc_bias: float # 加速度计偏置随机游走标准差（待传）
-    sigma_gyro_bias: float  # 陀螺仪偏置随机游走标准差（待传）
+    sigma_acc: float
+    sigma_gyro: float 
+    sigma_acc_bias: float 
+    sigma_gyro_bias: float 
 
-    p_acc: float = 0 # 加速度计偏置随机游走参数 (目前为定值)
-    p_gyro: float = 0 # 陀螺仪偏置随机游走参数 (目前为定值)
+    p_acc: float = 0 
+    p_gyro: float = 0 
 
     S_a: np.ndarray = np.eye(3) # 加速度测量标定矩阵，默认为单位矩阵（暂时不做修正）
     S_g: np.ndarray = np.eye(3) # 角速度测量标定矩阵，默认为单位矩阵（暂时不做修正）
-    debug: bool = True
-
-
-    
 
     g: np.ndarray = np.array([0, 0, 9.82])  # 在 NED 坐标系中重力向下为正
-
     Q_err: np.array = field(init=False, repr=False) # 误差状态噪声协方差矩阵，由 sigma_* 参数在 __post_init__ 中构造
 
 # 构造Q_err矩阵
     def __post_init__(self):
-
         # Q构造实现
         self.Q_err = (
             la.block_diag(
@@ -65,7 +58,6 @@ class ESKF:
                 self.sigma_gyro_bias * np.eye(3),
             )
             ** 2
-
         )
 
 # 名义状态预测
@@ -96,11 +88,10 @@ class ESKF:
         gyroscope_bias = x_nominal[GYRO_BIAS_IDX]
         
         # 预测位置与速度
-        R = quaternion_to_rotation_matrix(quaternion, debug=self.debug)
+        R = quaternion_to_rotation_matrix(quaternion)
         acceleration=R@acceleration+self.g
         position_prediction=position+Ts*velocity+Ts**2/2*acceleration#加速度模型可能仍需进一步核对
         velocity_prediction = velocity+Ts*acceleration #同上，可能仍需进一步核对
-
 
         k=Ts*omega # 机体系局部旋转向量增量
         absk=la.norm(k) # 取模长（应为非负）
@@ -141,7 +132,7 @@ class ESKF:
             np.ndarray: 连续时间误差状态动力学雅可比矩阵，形状为 (15, 15)
         """
         # 旋转矩阵
-        R = quaternion_to_rotation_matrix(x_nominal[ATT_IDX], debug=self.debug)
+        R = quaternion_to_rotation_matrix(x_nominal[ATT_IDX])
 
         # 分配矩阵
         A = np.zeros((15, 15))
@@ -172,7 +163,7 @@ class ESKF:
         Returns:
             np.ndarray: 连续时间误差状态噪声输入矩阵，形状为 (15, 12)
         """
-        R = quaternion_to_rotation_matrix(x_nominal[ATT_IDX], debug=self.debug)
+        R = quaternion_to_rotation_matrix(x_nominal[ATT_IDX])
 
         G = np.zeros((15, 12))
         diagonal=la.block_diag(-R,-np.eye(3),np.eye(3),np.eye(3))
@@ -246,7 +237,7 @@ class ESKF:
             L = L/10
         else :
             L = -(v_post[GNSSk - 1]@v_post[GNSSk - 1].T) #误差调整参数
-        # print("L:", L)
+
         b = lambda_min +(1-lambda_min)*(2**L)
         d = (1-b)/(1-b**GNSSk)
 
@@ -344,7 +335,7 @@ class ESKF:
 
         return x_nominal_predicted, P_predicted
 
-# 
+# 误差注入
     def inject(
         self, x_nominal: np.ndarray, delta_x: np.ndarray, P: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -479,8 +470,6 @@ class ESKF:
 
         return x_injected, P_injected, R_GNSS_auto, W
 
-
-
     @classmethod
     def delta_x(cls, x_nominal: np.ndarray, x_true: np.ndarray,) -> np.ndarray:
         """计算 x_nominal 与 x_true 之间的误差状态。
@@ -509,4 +498,3 @@ class ESKF:
         d_x = np.concatenate((delta_position, delta_velocity, delta_theta, delta_bias))
 
         return d_x
-

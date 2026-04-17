@@ -1,3 +1,5 @@
+# 用于生成 CatSlice 类，支持切片操作和连接操作
+
 import numpy as np
 from typing import Union, Sequence, Any
 

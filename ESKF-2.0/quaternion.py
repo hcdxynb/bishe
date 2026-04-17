@@ -1,9 +1,10 @@
+# 四元数相关操作
 import numpy as np
 from mytypes import ArrayLike
 
 #import utils
 
-def cross_product_matrix(n: ArrayLike, debug: bool = True) -> np.ndarray:
+def cross_product_matrix(n: ArrayLike) -> np.ndarray:
     assert len(n) == 3, f"utils.cross_product_matrix: Vector not of length 3: {n}"
     vector = np.array(n, dtype=float).reshape(3)
 
@@ -12,16 +13,7 @@ def cross_product_matrix(n: ArrayLike, debug: bool = True) -> np.ndarray:
     S=np.array([[0,-vector[2],vector[1]],
                [vector[2],0,-vector[0]],
                [-vector[1],vector[0],0]])
-    
-    if debug:
-        assert S.shape == (
-            3,
-            3,
-        ), f"utils.cross_product_matrix: Result is not a 3x3 matrix: {S}, \n{S.shape}"
-        assert np.allclose(
-            S.T, -S
-        ), f"utils.cross_product_matrix: Result is not skew-symmetric: {S}"
-    
+
     return S
 
 
@@ -69,17 +61,15 @@ def quaternion_product(ql: np.ndarray, qr: np.ndarray) -> np.ndarray:
 
 
 def quaternion_to_rotation_matrix(
-    quaternion: np.ndarray, debug: bool = True
+    quaternion: np.ndarray
 ) -> np.ndarray:
     """Convert a quaternion to a rotation matrix
 
     Args:
         quaternion (np.ndarray): Quaternion of either shape (3,) (pure quaternion) or (4,)
-        debug (bool, optional): Debug flag, could speed up by setting to False. Defaults to True.
 
     Raises:
         RuntimeError: Quaternion is of the wrong shape
-        AssertionError: Debug assert fails, rotation matrix is not element of SO(3)
 
     Returns:
         np.ndarray: Rotation matrix of shape (3, 3)
@@ -96,14 +86,6 @@ def quaternion_to_rotation_matrix(
         )
     cross_eps=cross_product_matrix(epsilon)
     R = np.eye(3)+2*eta*cross_eps+2*cross_eps@cross_eps # TODO: Convert from quaternion to rotation matrix
-
-    if debug:
-        assert np.allclose(
-            np.linalg.det(R), 1
-        ), f"quaternion.quaternion_to_rotation_matrix: Determinant of rotation matrix not close to 1"
-        assert np.allclose(
-            R.T, np.linalg.inv(R)
-        ), f"quaternion.quaternion_to_rotation_matrix: Transpose of rotation matrix not close to inverse"
 
     return R
 

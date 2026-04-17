@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 # 读取配置参数
-with open(r'params.yaml') as file:
+with open(r'params.yaml', encoding='utf-8') as file:
     params = yaml.load(file, Loader=yaml.FullLoader)
 
 # 导入进度条
@@ -92,8 +92,7 @@ eskf = ESKF(
     p_gyro,
     S_a=S_a, # 设置加速度计修正矩阵
     S_g=S_g, # 设置陀螺仪修正矩阵
-    debug=False # TODO: 设为 False 可避免开销较大的调试检查，也可用 'python -O run_INS_simulated.py' 关闭断言
-)
+    )
 
 steps=90000
 # 预分配数组
@@ -121,7 +120,6 @@ P_pred[0][ERR_ATT_IDX ** 2] = params["P_pred0_att"]*np.eye(3)# TODO: 继续调�
 P_pred[0][ERR_ACC_BIAS_IDX ** 2] = params["P_pred0_accbias"]*np.eye(3)# TODO: 继续调参
 P_pred[0][ERR_GYRO_BIAS_IDX ** 2] = params["P_pred0_gyrobias"]*np.eye(3)# TODO: 继续调参
 
-# 使用 'python -O run_INS_simulated.py' 运行可关闭断言，长时运行时大约可提升 8/5 的速度
 # 可选：固定估计步数
 N: int = steps # TODO: 可先从较小值开始（如 500），结果稳定后再逐步增大
 doGNSS: bool = True  # TODO: 若想检查纯预测在合理时长内是否稳定，可设为 False
@@ -153,8 +151,6 @@ for k in tqdm(range(N)):
         else:
             x_pred[k + 1], P_pred[k + 1] = eskf.predict(x_est[k],P_est[k],z_acceleration[k],z_gyroscope[k],dt, W, GNSSk, v_prior,v_post ,do_auto)# TODO: 提示：测量来自当前与过去时刻，而不是未来
 
-
-
 # 绘图
 # 状态估计结果与真值的比较，以及误差分析
 
@@ -173,6 +169,7 @@ ax.set_zlabel("Altitude [m]")
 t = np.linspace(0, dt * (N - 1), N)
 eul = np.apply_along_axis(quaternion_to_euler, 1, x_est[:N, ATT_IDX])
 eul_true = np.apply_along_axis(quaternion_to_euler, 1, x_true[:N, ATT_IDX])
+
 
 # 误差范数曲线(RMSE)
 fig4, axs4 = plt.subplots(5, 1, num=2, clear=True)

@@ -1,7 +1,8 @@
+# 放松类型检查，允许更灵活的类型定义
 import sys
 from typing import TYPE_CHECKING, Any, List, Sequence, Tuple, Union, overload
 
-# %% Taken from https://github.com/numpy/numpy/tree/master/numpy/typing
+# Taken from https://github.com/numpy/numpy/tree/master/numpy/typing
 from numpy import dtype, ndarray
 
 if sys.version_info >= (3, 8):
@@ -63,5 +64,3 @@ else:
 
 
 ArrayLike = Union[bool, int, float, complex, _SupportsArray, Sequence]
-
-# %%
