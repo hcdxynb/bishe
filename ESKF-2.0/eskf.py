@@ -47,7 +47,7 @@ class ESKF:
     g: np.ndarray = np.array([0, 0, 9.82])  # 在 NED 坐标系中重力向下为正
     Q_err: np.array = field(init=False, repr=False) # 误差状态噪声协方差矩阵，由 sigma_* 参数在 __post_init__ 中构造
 
-# 构造Q_err矩阵
+# 构造Q_err矩阵 精细化设计Q
     def __post_init__(self):
         # Q构造实现
         self.Q_err = (
@@ -278,7 +278,7 @@ class ESKF:
         """
         Ad, GQGd = self.discrete_error_matrices(x_nominal, acceleration, omega, Ts)
 
-        if GNSSk > 500 and do_auto:
+        if GNSSk > 50 and do_auto:
             GQGd = self.Q_adaptation(P, W, GQGd, v_prior, v_post, GNSSk)
 
         P_predicted=Ad@P@Ad.T+GQGd
@@ -396,7 +396,6 @@ class ESKF:
             np.ndarray: 调整后的观测噪声协方差矩阵，形状为 (3, 3)
         """
         # 待办：自适应调整 R_GNSS 的实现
-        # R_GNSS = R_GNSS * (1 + 0.1 * GNSSk)
 
         lambda_min = 0.98 #遗忘因子
 
@@ -427,7 +426,8 @@ class ESKF:
         R_GNSS: np.ndarray,
         GNSSk: int,
         v_prior: np.ndarray,
-        v_post: np.ndarray
+        v_post: np.ndarray,
+        do_auto: bool
     ) -> Tuple[np.ndarray, np.ndarray]:
         """利用 GNSS 位置观测更新状态与协方差。
 
@@ -438,6 +438,7 @@ class ESKF:
             GNSSk (int): 当前 GNSS 测量索引
             v_prior (np.ndarray): 先验残差，形状为 (3,N)
             v_post (np.ndarray): 后验残差，形状为 (3,)
+            do_auto (bool): 是否启用自适应调整 R_GNSS
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: 更新结果二元组 (x_injected, P_injected):
@@ -448,10 +449,10 @@ class ESKF:
         """
 
         H = np.block([np.eye(3), np.zeros((3,12))])
-        if GNSSk == 0:
-            R_GNSS_auto = R_GNSS
-        else:
+        if do_auto and GNSSk > 0 :
             R_GNSS_auto = self.R_GNSS_adaptation(H, v_prior, v_post, P, R_GNSS, GNSSk)
+        else :
+            R_GNSS_auto = R_GNSS
 
         I = np.eye(*P.shape)
 
