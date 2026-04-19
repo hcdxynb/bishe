@@ -41,9 +41,13 @@ print(f"pyplot using style set {plt_styles}")
 doGNSS: bool = True # 是否执行 GNSS 更新
 do_auto_R: bool = True # 是否启用自适应测量噪声（R）调整
 do_auto_Q: bool = True # 是否启用自适应过程噪声（Q）调整
-filename_to_load = "task_simulation_part_10.mat" # 要加载的仿真数据文件名
-gnss_downsample_factor: int = 1 # GNSS 数据下采样因子（例如，10 表示从 100Hz 下采样到 10Hz）
-# do_sage_husa: bool = False # 是否使用 Sage-Husa 自适应滤波方法
+# filename_to_load = "./task_simulation_50000/task_simulation_random_01.mat" # 要加载的仿真数据文件名
+filename_to_load = "task_simulation.mat" # 要加载的仿真数据文件名
+gnss_downsample_factor: int = 1 # GNSS 数据下采样因子
+do_emergency: bool = True # 突发状况 GNSS一段时间缺失
+gnss_dropout_start = 5.0   # 失锁开始时间 [s]
+gnss_dropout_end = 25.0     # 失锁结束时间 [s]
+steps=90000
 
 # 加载数据
 loaded_data = scipy.io.loadmat(filename_to_load)
@@ -56,7 +60,6 @@ z_acceleration = loaded_data["zAcc"].T
 z_GNSS = loaded_data["zGNSS"].T
 z_gyroscope = loaded_data["zGyro"].T
 dt = np.mean(np.diff(timeIMU))
-steps = len(z_acceleration)
 
 timeGNSS = timeGNSS[::gnss_downsample_factor]
 z_GNSS = z_GNSS[::gnss_downsample_factor]
@@ -96,7 +99,7 @@ eskf = ESKF(
     S_g=S_g, # 设置陀螺仪修正矩阵
     )
 
-steps=9000
+
 # 预分配数组
 x_est = np.zeros((steps, 16))
 P_est = np.zeros((steps, 15, 15))
@@ -122,9 +125,14 @@ P_pred[0][ERR_GYRO_BIAS_IDX ** 2] = params["P_pred0_gyrobias"]*np.eye(3)# TODO: 
 N: int = steps # TODO: 可先从较小值开始（如 500），结果稳定后再逐步增大
 
 # 主循环 滤波过程
+
 GNSSk: int = 0  # 记录当前 GNSS 测量索引
 for k in tqdm(range(N)):
-    if doGNSS and GNSSk < gnss_steps and timeIMU[k] >= timeGNSS[GNSSk]:
+    gnss_available = not (
+        do_emergency
+        and gnss_dropout_start <= timeIMU[k] <= gnss_dropout_end
+    ) 
+    if doGNSS and gnss_available and GNSSk < gnss_steps and timeIMU[k] >= timeGNSS[GNSSk]:
         v_prior[GNSSk] = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）        
         if GNSSk == 0:
             x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R)
@@ -181,13 +189,13 @@ gyro_bias_err_norm_deg_h = np.linalg.norm(
 axs4[0].plot(t, pos_err_norm)
 axs4[0].plot(
     np.arange(0, N, 100 * gnss_downsample_factor) * dt,
-    np.linalg.norm(x_true[99:N:100 * gnss_downsample_factor, :3] - z_GNSS[:GNSSk], axis=1),
+    np.linalg.norm(x_true[99:N:100 * gnss_downsample_factor, :3] - z_GNSS[:steps//(100 * gnss_downsample_factor)], axis=1),
 )
 axs4[0].set(ylabel="Position error [m]", xlabel="Time [s]")
 axs4[0].legend(
     [
         f"ESKF RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1))):.4f}",
-        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1))):.4f}",
+        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[:steps//(100 * gnss_downsample_factor)])**2, axis=1))):.4f}",
     ]
 )
 
