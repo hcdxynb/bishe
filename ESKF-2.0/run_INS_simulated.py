@@ -40,8 +40,9 @@ print(f"pyplot using style set {plt_styles}")
 # 控制变量区
 doGNSS: bool = True # 是否执行 GNSS 更新
 do_auto_R: bool = True # 是否启用自适应测量噪声（R）调整
-do_auto_Q: bool = False # 是否启用自适应过程噪声（Q）调整
-filename_to_load = "task_simulation_part_04.mat" # 要加载的仿真数据文件名
+do_auto_Q: bool = True # 是否启用自适应过程噪声（Q）调整
+filename_to_load = "task_simulation_part_10.mat" # 要加载的仿真数据文件名
+gnss_downsample_factor: int = 1 # GNSS 数据下采样因子（例如，10 表示从 100Hz 下采样到 10Hz）
 # do_sage_husa: bool = False # 是否使用 Sage-Husa 自适应滤波方法
 
 # 加载数据
@@ -56,6 +57,9 @@ z_GNSS = loaded_data["zGNSS"].T
 z_gyroscope = loaded_data["zGyro"].T
 dt = np.mean(np.diff(timeIMU))
 steps = len(z_acceleration)
+
+timeGNSS = timeGNSS[::gnss_downsample_factor]
+z_GNSS = z_GNSS[::gnss_downsample_factor]
 gnss_steps = len(z_GNSS)
 
 # 测量噪声 STIM300 的 IMU 噪声参数，依据数据手册与仿真采样率设置 （连续时间噪声）
@@ -120,7 +124,7 @@ N: int = steps # TODO: 可先从较小值开始（如 500），结果稳定后�
 # 主循环 滤波过程
 GNSSk: int = 0  # 记录当前 GNSS 测量索引
 for k in tqdm(range(N)):
-    if doGNSS and timeIMU[k] >= timeGNSS[GNSSk]:
+    if doGNSS and GNSSk < gnss_steps and timeIMU[k] >= timeGNSS[GNSSk]:
         v_prior[GNSSk] = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）        
         if GNSSk == 0:
             x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R)
@@ -176,14 +180,14 @@ gyro_bias_err_norm_deg_h = np.linalg.norm(
 
 axs4[0].plot(t, pos_err_norm)
 axs4[0].plot(
-    np.arange(0, N, 100) * dt,
-    np.linalg.norm(x_true[99:N:100, :3] - z_GNSS[:GNSSk], axis=1),
+    np.arange(0, N, 100 * gnss_downsample_factor) * dt,
+    np.linalg.norm(x_true[99:N:100 * gnss_downsample_factor, :3] - z_GNSS[:GNSSk], axis=1),
 )
 axs4[0].set(ylabel="Position error [m]", xlabel="Time [s]")
 axs4[0].legend(
     [
         f"ESKF RMSE: {np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1))):.4f}",
-        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1))):.4f}",
+        f"GNSS RMSE: {np.sqrt(np.mean(np.sum((x_true[99:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[:GNSSk])**2, axis=1))):.4f}",
     ]
 )
 

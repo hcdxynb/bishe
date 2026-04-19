@@ -226,22 +226,10 @@ class ESKF:
             np.ndarray: 调整后的离散时间噪声协方差矩阵，形状为 (15, 15)
         """
         # 待办：自适应调整 Q 的实现
-
-        lambda_min = 0.98 #遗忘因子
-
-        L = 0
-
-        if GNSSk > 10 :
-            for i in range(10):
-                L = L + -(v_post[GNSSk - 1 -i]@v_prior[GNSSk - 1 - i].T) #误差调整参数
-            L = L/10
-        else :
-            L = -(v_post[GNSSk - 1]@v_post[GNSSk - 1].T) #误差调整参数
-
-        b = lambda_min +(1-lambda_min)*(2**L)
+        b = 0.95
         d = (1-b)/(1-b**GNSSk)
 
-        GQGd_adjusted = (1-d)* GQGd + d*(W@np.outer(v_prior[GNSSk], v_prior[GNSSk])@W.T + P) #注意是外积
+        GQGd_adjusted = (1-d)* GQGd + d*(W@np.outer(v_prior[GNSSk], v_prior[GNSSk])@W.T) #注意是外积
 
         return GQGd_adjusted
 
@@ -278,7 +266,7 @@ class ESKF:
         """
         Ad, GQGd = self.discrete_error_matrices(x_nominal, acceleration, omega, Ts)
 
-        if GNSSk > 50 and do_auto:
+        if GNSSk > 0 and do_auto:
             GQGd = self.Q_adaptation(P, W, GQGd, v_prior, v_post, GNSSk)
 
         P_predicted=Ad@P@Ad.T+GQGd
