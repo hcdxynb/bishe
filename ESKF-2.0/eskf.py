@@ -405,6 +405,37 @@ class ESKF:
         if ((v_prior[GNSSk]@v_prior[GNSSk].T) > np.trace(H@P@H.T+R_GNSS)) :
             R_GNSS = alpha*R_GNSS
         return R_GNSS
+    
+    def R_GNSS_sage_husa(
+        self,
+        H: np.ndarray,
+        v_prior: np.ndarray,
+        v_post: np.ndarray,
+        P: np.ndarray,
+        R_GNSS: np.ndarray,
+        GNSSk: int
+    ) -> np.ndarray:
+        """根据 GNSS 测量索引 GNSSk 使用 SAGE-HUSA 方法对观测噪声协方差矩阵 R_GNSS 进行适应性调整。
+
+        Args:
+            H (np.ndarray): GNSS 位置观测矩阵，形状为 (3, 15)
+            v_prior (np.ndarray): GNSS 位置观测的先验残差，形状为 (3,)
+            v_post (np.ndarray): GNSS 位置观测的后验残差，形状为 (3,)
+            P (np.ndarray): 误差状态协方差矩阵，形状为 (15, 15)
+            R_GNSS (np.ndarray): 原始观测噪声协方差矩阵，形状为 (3, 3)
+            GNSSk (int): 当前 GNSS 测量索引
+
+        Returns:
+            np.ndarray: 调整后的观测噪声协方差矩阵，形状为 (3, 3)
+        """
+        # SAGE-HUSA 自适应调整实现
+        # 这里只是一个简化的示例，实际应用中可能需要更复杂的实现
+
+
+        b = 0.9 # 遗忘因子
+        d = (1-b)/(1 - b**GNSSk) # 这里的 b 可以根据实际情况调整，通常在 0.9 到 0.99 之间
+        R_GNSS = (1 - d) * R_GNSS + d * (np.outer(v_prior[GNSSk], v_prior[GNSSk]) + H@P@H.T)  # 注意是外积
+        return R_GNSS
 
 # GNSS 位置观测更新
     def update_GNSS_position(
@@ -415,7 +446,8 @@ class ESKF:
         GNSSk: int,
         v_prior: np.ndarray,
         v_post: np.ndarray,
-        do_auto: bool
+        do_auto: bool,
+        do_sage_husa: bool
     ) -> Tuple[np.ndarray, np.ndarray]:
         """利用 GNSS 位置观测更新状态与协方差。
 
@@ -427,6 +459,7 @@ class ESKF:
             v_prior (np.ndarray): 先验残差，形状为 (3,N)
             v_post (np.ndarray): 后验残差，形状为 (3,)
             do_auto (bool): 是否启用自适应调整 R_GNSS
+            do_sage_husa (bool): 是否启用 Sage-Husa 风格的自适应调整（仅在 do_auto=True 时有效）
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: 更新结果二元组 (x_injected, P_injected):
@@ -439,7 +472,9 @@ class ESKF:
         H = np.block([np.eye(3), np.zeros((3,12))])
         if do_auto and GNSSk > 0 :
             R_GNSS_auto = self.R_GNSS_adaptation(H, v_prior, v_post, P, R_GNSS, GNSSk)
-        else :
+        elif do_sage_husa and GNSSk > 0:
+            R_GNSS_auto = self.R_GNSS_sage_husa(H, v_prior, v_post, P, R_GNSS, GNSSk)
+        else:
             R_GNSS_auto = R_GNSS
 
         I = np.eye(*P.shape)

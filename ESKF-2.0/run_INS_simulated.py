@@ -6,6 +6,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import yaml
+import os
+from pathlib import Path
 
 # 读取配置参数
 with open(r'params.yaml', encoding='utf-8') as file:
@@ -40,14 +42,28 @@ print(f"pyplot using style set {plt_styles}")
 # 控制变量区
 doGNSS: bool = True # 是否执行 GNSS 更新
 do_auto_R: bool = False # 是否启用自适应测量噪声（R）调整
+do_sage_husa: bool = False # 是否使用 SAGE-HUSA 进行自适应噪声调整
 do_auto_Q: bool = False # 是否启用自适应过程噪声（Q）调整
-# filename_to_load = "./task_simulation_50000/task_simulation_random_01.mat" # 要加载的仿真数据文件名
+# filename_to_load = "./task_simulation_9000/task_simulation_part_01.mat" # 要加载的仿真数据文件名
+filename_to_load = "./task_simulation_50000/task_simulation_random_01.mat" # 要加载的仿真数据文件名
 filename_to_load = "task_simulation.mat" # 要加载的仿真数据文件名
 gnss_downsample_factor: int = 1 # GNSS 数据下采样因子
 do_emergency: bool = False # 突发状况 GNSS一段时间缺失
 gnss_dropout_start = 5.0   # 失锁开始时间 [s]
 gnss_dropout_end = 25.0     # 失锁结束时间 [s]
-steps=9000
+steps=90000
+
+# 批处理模式可通过环境变量覆盖输入和图像输出
+filename_to_load = os.environ.get("SIM_DATA_FILE", filename_to_load)
+save_fig_dir = os.environ.get("SAVE_FIG_DIR", "").strip()
+fig_prefix = os.environ.get("FIG_PREFIX", "").strip()
+no_show_fig = os.environ.get("NO_SHOW_FIG", "0") == "1"
+save_fullscreen_fig = os.environ.get("SAVE_FULLSCREEN_FIG", "1") == "1"
+
+
+def apply_fullscreen_canvas(fig, width_in=19.2, height_in=10.8):
+    # 使用 16:9 大画布导出，近似全屏截图尺寸
+    fig.set_size_inches(width_in, height_in, forward=True)
 
 # 加载数据
 loaded_data = scipy.io.loadmat(filename_to_load)
@@ -135,9 +151,9 @@ for k in tqdm(range(N)):
     if doGNSS and gnss_available and GNSSk < gnss_steps and timeIMU[k] >= timeGNSS[GNSSk]:
         v_prior[GNSSk] = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）        
         if GNSSk == 0:
-            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R)
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R, do_sage_husa)
         else:
-            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1], do_auto_R)
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1], do_auto_R, do_sage_husa)
             v_post[GNSSk] = z_GNSS[GNSSk] - x_est[k, POS_IDX] # 测量残差（后验残差）
         R_GNSS_history[GNSSk] = R_GNSS
 
@@ -163,19 +179,20 @@ fig1 = plt.figure(1)
 fig1.suptitle("Trajectory comparison")
 ax = plt.axes(projection="3d")
 
-ax.plot3D(x_est[:N, 1], x_est[:N, 0], -x_est[:N, 2],color='blue') # 前N行，第1列（东）、第0列（北）、第2列（下，取负号变为高度）
-ax.plot3D(z_GNSS[:GNSSk, 1], z_GNSS[:GNSSk, 0], -z_GNSS[:GNSSk, 2],color='red')
-ax.plot3D(x_true[:N, 1], x_true[:N, 0], -x_true[:N, 2],color='yellow')
+ax.plot3D(x_est[:N, 1], x_est[:N, 0], -x_est[:N, 2], color='blue', label='ESKF estimate') # 前N行，第1列（东）、第0列（北）、第2列（下，取负号变为高度）
+ax.plot3D(z_GNSS[:GNSSk, 1], z_GNSS[:GNSSk, 0], -z_GNSS[:GNSSk, 2], color='red', label='GNSS')
+ax.plot3D(x_true[:N, 1], x_true[:N, 0], -x_true[:N, 2], color='yellow', label='Ground truth')
 ax.set_xlabel("East [m]")
 ax.set_ylabel("North [m]")
 ax.set_zlabel("Altitude [m]")
+ax.legend(loc='best')
 
 t = np.linspace(0, dt * (N - 1), N)
 eul = np.apply_along_axis(quaternion_to_euler, 1, x_est[:N, ATT_IDX])
 eul_true = np.apply_along_axis(quaternion_to_euler, 1, x_true[:N, ATT_IDX])
 
 # 状态估计曲线
-fig2, axs2 = plt.subplots(5, 1, num=2, clear=True)
+fig2, axs2 = plt.subplots(3, 1, num=2, clear=True)
 fig2.suptitle("States estimates")
 
 axs2[0].plot(t, x_est[:N, POS_IDX], linewidth=1.5)
@@ -204,25 +221,6 @@ axs2[2].legend([
     r"$\phi$ true", r"$\theta$ true", r"$\psi$ true",
 ])
 
-
-axs2[3].plot(t, x_est[:N, ACC_BIAS_IDX], linewidth=1.5)
-axs2[3].plot(t, x_true[:N, ACC_BIAS_IDX], linestyle='--', linewidth=1.2)
-axs2[3].set(ylabel="Accl bias [m/s^2]",xlabel="Time [s]")
-axs2[3].legend([
-    "$x$ est", "$y$ est", "$z$ est",
-    "$x$ true", "$y$ true", "$z$ true",
-])
-
-    
-axs2[4].plot(t, x_est[:N, GYRO_BIAS_IDX] * 180 / np.pi * 3600, linewidth=1.5)
-axs2[4].plot(t, x_true[:N, GYRO_BIAS_IDX] * 180 / np.pi * 3600, linestyle='--', linewidth=1.2)
-axs2[4].set(ylabel="Gyro bias [deg/h]",xlabel="Time [s]")
-axs2[4].legend([
-    "$x$ est", "$y$ est", "$z$ est",
-    "$x$ true", "$y$ true", "$z$ true",
-])
-
-
 # 误差范数曲线(RMSE)
 fig3, axs3 = plt.subplots(5, 1, num=3, clear=True)
 fig3.suptitle("RMSE of all state groups")
@@ -234,6 +232,24 @@ acc_bias_err_norm = np.linalg.norm(delta_x[:N, ERR_ACC_BIAS_IDX], axis=1)
 gyro_bias_err_norm_deg_h = np.linalg.norm(
     delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600, axis=1
 )
+
+# 各状态分量 RMSE（便于论文表格或终端汇总）
+rmse_pos_xyz = np.sqrt(np.mean(delta_x[:N, POS_IDX] ** 2, axis=0))
+rmse_vel_xyz = np.sqrt(np.mean(delta_x[:N, VEL_IDX] ** 2, axis=0))
+rmse_att_rpy_deg = np.sqrt(np.mean((delta_x[:N, ERR_ATT_IDX] * 180 / np.pi) ** 2, axis=0))
+rmse_acc_bias_xyz = np.sqrt(np.mean(delta_x[:N, ERR_ACC_BIAS_IDX] ** 2, axis=0))
+rmse_gyro_bias_xyz_deg_h = np.sqrt(
+    np.mean((delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600) ** 2, axis=0)
+)
+
+print("\n==================== RMSE summary ====================")
+print(f"Position RMSE [m]      (N,E,D): {rmse_pos_xyz[0]:.4f}, {rmse_pos_xyz[1]:.4f}, {rmse_pos_xyz[2]:.4f}")
+print(f"Velocity RMSE [m/s]    (N,E,D): {rmse_vel_xyz[0]:.4f}, {rmse_vel_xyz[1]:.4f}, {rmse_vel_xyz[2]:.4f}")
+print(f"Attitude RMSE [deg]  (roll,pitch,yaw): {rmse_att_rpy_deg[0]:.4f}, {rmse_att_rpy_deg[1]:.4f}, {rmse_att_rpy_deg[2]:.4f}")
+print(f"Acc bias RMSE [m/s^2]  (x,y,z): {rmse_acc_bias_xyz[0]:.6f}, {rmse_acc_bias_xyz[1]:.6f}, {rmse_acc_bias_xyz[2]:.6f}")
+print(f"Gyro bias RMSE [deg/h] (x,y,z): {rmse_gyro_bias_xyz_deg_h[0]:.4f}, {rmse_gyro_bias_xyz_deg_h[1]:.4f}, {rmse_gyro_bias_xyz_deg_h[2]:.4f}")
+print("======================================================\n")
+
 
 axs3[0].plot(t, pos_err_norm)
 axs3[0].plot(
@@ -277,4 +293,24 @@ ax4.set_title('GNSS R diagonal over time')
 ax4.grid(True)
 ax4.legend()
 
-plt.show()
+if save_fig_dir:
+    out_dir = Path(save_fig_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    prefix = f"{fig_prefix}_" if fig_prefix else ""
+
+    if save_fullscreen_fig:
+        apply_fullscreen_canvas(fig1)
+        apply_fullscreen_canvas(fig2)
+        apply_fullscreen_canvas(fig3)
+        apply_fullscreen_canvas(fig4)
+
+    fig1.savefig(out_dir / f"{prefix}fig1_trajectory.png", dpi=200, bbox_inches="tight")
+    fig2.savefig(out_dir / f"{prefix}fig2_states.png", dpi=200, bbox_inches="tight")
+    fig3.savefig(out_dir / f"{prefix}fig3_rmse.png", dpi=200, bbox_inches="tight")
+    fig4.savefig(out_dir / f"{prefix}fig4_rdiag.png", dpi=200, bbox_inches="tight")
+    print(f"Saved figures to: {out_dir.resolve()}")
+
+if no_show_fig:
+    plt.close('all')
+else:
+    plt.show()
