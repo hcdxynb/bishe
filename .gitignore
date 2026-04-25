@@ -10,6 +10,8 @@ env/
 .venv/
 
 ESKF-2.0/batch_doc_output/*
+ESKF-2.0/batch_doc_output/*
+output/*
 
 # Jupyter
 # .ipynb_checkpoints/

@@ -41,17 +41,19 @@ print(f"pyplot using style set {plt_styles}")
 
 # 控制变量区
 doGNSS: bool = True # 是否执行 GNSS 更新
-do_auto_R: bool = False # 是否启用自适应测量噪声（R）调整
-do_sage_husa: bool = False # 是否使用 SAGE-HUSA 进行自适应噪声调整
-do_auto_Q: bool = False # 是否启用自适应过程噪声（Q）调整
+do_auto_R: bool = True # 是否启用自适应测量噪声（R）调整
+do_sage_husa: bool = False # 是否使用 SAGE-HUSA 进行自适应（R）噪声调整
+do_auto_Q: bool = True # 是否启用自适应过程噪声（Q）调整
 # filename_to_load = "./task_simulation_9000/task_simulation_part_01.mat" # 要加载的仿真数据文件名
-filename_to_load = "./task_simulation_50000/task_simulation_random_01.mat" # 要加载的仿真数据文件名
-filename_to_load = "task_simulation.mat" # 要加载的仿真数据文件名
+# filename_to_load = "./task_simulation_50000/task_simulation_random_02.mat" # 要加载的仿真数据文件名
+# filename_to_load = "task_simulation.mat" # 要加载的仿真数据文件名
+filename_to_load = "./task_simulation_90000/task_simulation_scene5.mat"
 gnss_downsample_factor: int = 1 # GNSS 数据下采样因子
 do_emergency: bool = False # 突发状况 GNSS一段时间缺失
 gnss_dropout_start = 5.0   # 失锁开始时间 [s]
 gnss_dropout_end = 25.0     # 失锁结束时间 [s]
 steps=90000
+window = 10 # 误差调整窗口大小（仅在 do_auto_R=True 时使用）
 
 # 批处理模式可通过环境变量覆盖输入和图像输出
 filename_to_load = os.environ.get("SIM_DATA_FILE", filename_to_load)
@@ -146,14 +148,14 @@ GNSSk: int = 0  # 记录当前 GNSS 测量索引
 for k in tqdm(range(N)):
     gnss_available = not (
         do_emergency
-        and gnss_dropout_start <= timeIMU[k] <= gnss_dropout_end
+        and gnss_dropout_start + timeIMU[0] <= timeIMU[k] <= gnss_dropout_end + timeIMU[0]
     )
     if doGNSS and gnss_available and GNSSk < gnss_steps and timeIMU[k] >= timeGNSS[GNSSk]:
         v_prior[GNSSk] = z_GNSS[GNSSk] - x_pred[k, POS_IDX] # 测量残差（先验残差）        
         if GNSSk == 0:
-            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R, do_sage_husa)
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,np.zeros(3), do_auto_R, do_sage_husa, window)
         else:
-            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1], do_auto_R, do_sage_husa)
+            x_est[k], P_est[k], R_GNSS, W = eskf.update_GNSS_position(x_pred[k],P_pred[k],R_GNSS,GNSSk,v_prior,v_post[GNSSk-1], do_auto_R, do_sage_husa, window)
             v_post[GNSSk] = z_GNSS[GNSSk] - x_est[k, POS_IDX] # 测量残差（后验残差）
         R_GNSS_history[GNSSk] = R_GNSS
 
@@ -225,6 +227,7 @@ axs2[2].legend([
 fig3, axs3 = plt.subplots(5, 1, num=3, clear=True)
 fig3.suptitle("RMSE of all state groups")
 
+# 各状态分量 RMSE（便于论文表格或终端汇总）
 pos_err_norm = np.linalg.norm(delta_x[:N, POS_IDX], axis=1)
 vel_err_norm = np.linalg.norm(delta_x[:N, VEL_IDX], axis=1)
 att_err_norm_deg = np.linalg.norm(delta_x[:N, ERR_ATT_IDX] * 180 / np.pi, axis=1)
@@ -233,8 +236,30 @@ gyro_bias_err_norm_deg_h = np.linalg.norm(
     delta_x[:N, ERR_GYRO_BIAS_IDX] * 180 / np.pi * 3600, axis=1
 )
 
-# 各状态分量 RMSE（便于论文表格或终端汇总）
 rmse_pos_xyz = np.sqrt(np.mean(delta_x[:N, POS_IDX] ** 2, axis=0))
+rmse_pos_xyz_gnss = np.sqrt(np.mean((x_true[99:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[:steps//(100 * gnss_downsample_factor)])**2, axis=0))
+
+# rmse_pos_xyz_1 = np.sqrt(np.mean(delta_x[:20000, POS_IDX] ** 2, axis=0))
+# rmse_pos_xyz_2 = np.sqrt(np.mean(delta_x[20000:40000, POS_IDX] ** 2, axis=0))
+# rmse_pos_xyz_3 = np.sqrt(np.mean(delta_x[40000:60000, POS_IDX] ** 2, axis=0))
+# rmse_pos_xyz_4 = np.sqrt(np.mean(delta_x[60000:90000, POS_IDX] ** 2, axis=0))
+
+# rmse_pos_xyz_1_all = np.sqrt(np.mean(np.sum(delta_x[:20000, POS_IDX] ** 2, axis=1)))
+# rmse_pos_xyz_2_all = np.sqrt(np.mean(np.sum(delta_x[20000:40000, POS_IDX] ** 2, axis=1)))
+# rmse_pos_xyz_3_all = np.sqrt(np.mean(np.sum(delta_x[40000:60000, POS_IDX] ** 2, axis=1)))
+# rmse_pos_xyz_4_all = np.sqrt(np.mean(np.sum(delta_x[60000:90000, POS_IDX] ** 2, axis=1)))
+
+# rmse_pos_xyz_gnss_1 = np.sqrt(np.mean((x_true[99:20000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[0:200])**2, axis=0))
+# rmse_pos_xyz_gnss_2 = np.sqrt(np.mean((x_true[20099:40000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[200:400])**2, axis=0))
+# rmse_pos_xyz_gnss_3 = np.sqrt(np.mean((x_true[40099:60000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[400:600])**2, axis=0))
+# rmse_pos_xyz_gnss_4 = np.sqrt(np.mean((x_true[60099:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[600:steps//(100 * gnss_downsample_factor)])**2, axis=0))
+
+# rmse_pos_xyz_gnss_1_all = np.sqrt(np.mean(np.sum((x_true[99:20000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[0:200])**2, axis=1)))
+# rmse_pos_xyz_gnss_2_all = np.sqrt(np.mean(np.sum((x_true[20099:40000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[200:400])**2, axis=1)))
+# rmse_pos_xyz_gnss_3_all = np.sqrt(np.mean(np.sum((x_true[40099:60000:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[400:600])**2, axis=1)))
+# rmse_pos_xyz_gnss_4_all = np.sqrt(np.mean(np.sum((x_true[60099:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[600:steps//(100 * gnss_downsample_factor)])**2, axis=1)))
+
+
 rmse_vel_xyz = np.sqrt(np.mean(delta_x[:N, VEL_IDX] ** 2, axis=0))
 rmse_att_rpy_deg = np.sqrt(np.mean((delta_x[:N, ERR_ATT_IDX] * 180 / np.pi) ** 2, axis=0))
 rmse_acc_bias_xyz = np.sqrt(np.mean(delta_x[:N, ERR_ACC_BIAS_IDX] ** 2, axis=0))
@@ -243,11 +268,37 @@ rmse_gyro_bias_xyz_deg_h = np.sqrt(
 )
 
 print("\n==================== RMSE summary ====================")
+if(do_auto_R):
+    print("window length = ", window)
 print(f"Position RMSE [m]      (N,E,D): {rmse_pos_xyz[0]:.4f}, {rmse_pos_xyz[1]:.4f}, {rmse_pos_xyz[2]:.4f}")
+print(f"Position RMSE(Overall) [m]      (N,E,D): {np.sqrt(np.mean(np.sum(delta_x[:N, POS_IDX]**2, axis=1))):.4f}")
+print(f"Position RMSE(GNSS) [m]      (N,E,D): {rmse_pos_xyz_gnss[0]:.4f}, {rmse_pos_xyz_gnss[1]:.4f}, {rmse_pos_xyz_gnss[2]:.4f}")
+print(f"Position RMSE(GNSS)_all [m]      (N,E,D): {np.sqrt(np.mean(np.sum((x_true[99:N:100 * gnss_downsample_factor, POS_IDX] - z_GNSS[:steps//(100 * gnss_downsample_factor)])**2, axis=1))):.4f}")
 print(f"Velocity RMSE [m/s]    (N,E,D): {rmse_vel_xyz[0]:.4f}, {rmse_vel_xyz[1]:.4f}, {rmse_vel_xyz[2]:.4f}")
 print(f"Attitude RMSE [deg]  (roll,pitch,yaw): {rmse_att_rpy_deg[0]:.4f}, {rmse_att_rpy_deg[1]:.4f}, {rmse_att_rpy_deg[2]:.4f}")
 print(f"Acc bias RMSE [m/s^2]  (x,y,z): {rmse_acc_bias_xyz[0]:.6f}, {rmse_acc_bias_xyz[1]:.6f}, {rmse_acc_bias_xyz[2]:.6f}")
 print(f"Gyro bias RMSE [deg/h] (x,y,z): {rmse_gyro_bias_xyz_deg_h[0]:.4f}, {rmse_gyro_bias_xyz_deg_h[1]:.4f}, {rmse_gyro_bias_xyz_deg_h[2]:.4f}")
+
+# print(f"Position RMSE [m]_1      (N,E,D): {rmse_pos_xyz_1[0]:.4f}, {rmse_pos_xyz_1[1]:.4f}, {rmse_pos_xyz_1[2]:.4f}")
+# print(f"Position RMSE [m]_2      (N,E,D): {rmse_pos_xyz_2[0]:.4f}, {rmse_pos_xyz_2[1]:.4f}, {rmse_pos_xyz_2[2]:.4f}")
+# print(f"Position RMSE [m]_3      (N,E,D): {rmse_pos_xyz_3[0]:.4f}, {rmse_pos_xyz_3[1]:.4f}, {rmse_pos_xyz_3[2]:.4f}")
+# print(f"Position RMSE [m]_4      (N,E,D): {rmse_pos_xyz_4[0]:.4f}, {rmse_pos_xyz_4[1]:.4f}, {rmse_pos_xyz_4[2]:.4f}")
+
+# print(f"Position RMSE [m]_1_all      (Overall): {rmse_pos_xyz_1_all:.4f}")
+# print(f"Position RMSE [m]_2_all      (Overall): {rmse_pos_xyz_2_all:.4f}")
+# print(f"Position RMSE [m]_3_all      (Overall): {rmse_pos_xyz_3_all:.4f}")
+# print(f"Position RMSE [m]_4_all      (Overall): {rmse_pos_xyz_4_all:.4f}")
+
+# print(f"Position RMSE(GNSS)_1 [m]      (N,E,D): {rmse_pos_xyz_gnss_1[0]:.4f}, {rmse_pos_xyz_gnss_1[1]:.4f}, {rmse_pos_xyz_gnss_1[2]:.4f}")
+# print(f"Position RMSE(GNSS)_2 [m]      (N,E,D): {rmse_pos_xyz_gnss_2[0]:.4f}, {rmse_pos_xyz_gnss_2[1]:.4f}, {rmse_pos_xyz_gnss_2[2]:.4f}")
+# print(f"Position RMSE(GNSS)_3 [m]      (N,E,D): {rmse_pos_xyz_gnss_3[0]:.4f}, {rmse_pos_xyz_gnss_3[1]:.4f}, {rmse_pos_xyz_gnss_3[2]:.4f}")
+# print(f"Position RMSE(GNSS)_4 [m]      (N,E,D): {rmse_pos_xyz_gnss_4[0]:.4f}, {rmse_pos_xyz_gnss_4[1]:.4f}, {rmse_pos_xyz_gnss_4[2]:.4f}")
+
+# print(f"Position RMSE(GNSS)_1_all [m]      (Overall): {rmse_pos_xyz_gnss_1_all:.4f}")
+# print(f"Position RMSE(GNSS)_2_all [m]      (Overall): {rmse_pos_xyz_gnss_2_all:.4f}")
+# print(f"Position RMSE(GNSS)_3_all [m]      (Overall): {rmse_pos_xyz_gnss_3_all:.4f}")
+# print(f"Position RMSE(GNSS)_4_all [m]      (Overall): {rmse_pos_xyz_gnss_4_all:.4f}")
+
 print("======================================================\n")
 
 
